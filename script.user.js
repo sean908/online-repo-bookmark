@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Issue Markdown 网页内容收藏工具
 // @namespace    https://github.com/sean908
-// @version      2.0.0
+// @version      2.0.1
 // @description  在任意网页上选择页面区域，一键将选中内容从 HTML 转为 Markdown，支持创建/更新 Issue 到 CNB/GitHub/GitLab 平台
 // @author       Se@n
 // @match        *://*/*
@@ -292,9 +292,19 @@
             font-size: 14px;
             font-weight: 500;
             box-shadow: 3px 3px 0 rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            max-width: calc(100vw - 24px);
+            box-sizing: border-box;
+        }
+        .cnb-selection-tooltip-text {
+            max-width: min(720px, 72vw);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
         .cnb-selection-tooltip button {
-            margin-left: 10px;
             padding: 1px 12px;
             background: #fff;
             color: #000;
@@ -302,6 +312,7 @@
             font-weight: 600;
             cursor: pointer;
             transition: all 0.1s ease;
+            flex: 0 0 auto;
         }
         .cnb-selection-tooltip button:hover {
             background: #000;
@@ -1009,6 +1020,7 @@
         btnSelect.textContent = '选择';
         btnSelect.addEventListener('click', (e) => {
             e.preventDefault();
+            e.stopPropagation();
             startAreaSelection();
         });
 
@@ -1017,6 +1029,7 @@
         btnSettings.textContent = '设置';
         btnSettings.addEventListener('click', (e) => {
             e.preventDefault();
+            e.stopPropagation();
             openSettingsDialog();
         });
 
@@ -1027,6 +1040,7 @@
         btnList.textContent = '列表';
         btnList.addEventListener('click', (e) => {
             e.preventDefault();
+            e.stopPropagation();
             openIssueList();
         });
         dock.appendChild(btnList);
@@ -1041,6 +1055,7 @@
             btnClipboard.textContent = '剪贴板';
             btnClipboard.addEventListener('click', (e) => {
                 e.preventDefault();
+                e.stopPropagation();
                 if (typeof openClipboardWindow === 'function') {
                     openClipboardWindow();
                 }
@@ -1123,31 +1138,9 @@
         // 创建提示工具条
         const tooltip = document.createElement('div');
         tooltip.className = 'cnb-selection-tooltip';
-        tooltip.innerHTML = `
-            请点击选择页面区域 (将转换为Markdown格式)
-            <button id="cnb-confirm-selection">确认选择</button>
-            <button id="cnb-cancel-selection">取消</button>
-        `;
         tooltip.id = 'cnb-selection-tooltip';
         document.body.appendChild(tooltip);
-
-        // 添加事件监听
-        const confirmBtn = tooltip.querySelector('#cnb-confirm-selection');
-        const cancelBtn = tooltip.querySelector('#cnb-cancel-selection');
-
-        confirmBtn.addEventListener('click', () => {
-            if (selectedElements && selectedElements.size > 0) {
-                showIssueDialog(Array.from(selectedElements));
-            } else {
-                GM_notification({
-                    text: '请先选择区域（支持 Ctrl+点击多选）',
-                    title: 'Issue工具',
-                    timeout: 3000
-                });
-            }
-        });
-
-        cancelBtn.addEventListener('click', stopAreaSelection);
+        renderSelectionTooltip('请点击选择页面区域 (将转换为Markdown格式)');
 
         // 添加鼠标移动和点击事件
         document.addEventListener('mouseover', handleMouseOver);
@@ -1189,12 +1182,110 @@
         document.removeEventListener('keydown', handleKeyDown);
     }
 
+    function isToolUiElement(element) {
+        return !!(element && element.closest && element.closest('.cnb-dock, .cnb-dock-trigger, .cnb-selection-tooltip, .cnb-issue-dialog, .cnb-issue-overlay'));
+    }
+
+    function normalizeSelectionSummaryText(text) {
+        return String(text || '').replace(/\s+/g, ' ').trim();
+    }
+
+    function truncateSelectionSummary(text, maxLength = 56) {
+        const normalized = normalizeSelectionSummaryText(text);
+        if (normalized.length <= maxLength) return normalized;
+        return normalized.slice(0, maxLength - 3).trimEnd() + '...';
+    }
+
+    function getSelectedElementSummary(element) {
+        if (!element) return '页面区域';
+
+        const directText = normalizeSelectionSummaryText(element.innerText || element.textContent || '');
+        const heading = element.matches && element.matches('h1,h2,h3,h4,h5,h6,[role="heading"]')
+            ? element
+            : (element.querySelector ? element.querySelector('h1,h2,h3,h4,h5,h6,[role="heading"]') : null);
+        const headingText = heading ? normalizeSelectionSummaryText(heading.innerText || heading.textContent || '') : '';
+
+        const labeledText = normalizeSelectionSummaryText(
+            element.getAttribute && (element.getAttribute('aria-label') || element.getAttribute('title') || element.getAttribute('alt'))
+        );
+
+        const image = element.matches && element.matches('img') ? element : (element.querySelector ? element.querySelector('img') : null);
+        if (!directText && image) {
+            const imageText = normalizeSelectionSummaryText(
+                image.getAttribute('alt') || image.getAttribute('title') || image.currentSrc || image.src
+            );
+            return imageText ? `图片：${truncateSelectionSummary(imageText)}` : '图片区域';
+        }
+
+        const summary = headingText || labeledText || directText;
+        return summary ? truncateSelectionSummary(summary) : '页面区域';
+    }
+
+    function getSelectionTooltipText() {
+        const count = selectedElements ? selectedElements.size : 0;
+        if (count <= 0) return '请点击选择页面区域 (将转换为Markdown格式)';
+
+        const recentSummary = getSelectedElementSummary(lastSelectedElement || selectedElement);
+        if (count === 1) return `已选择：${recentSummary} (将转换为Markdown)`;
+        return `已选择 ${count} 个页面区域，最近选择：${recentSummary} (将转换为Markdown)`;
+    }
+
+    function notifyNoSelection() {
+        if (typeof GM_notification === 'function') {
+            GM_notification({
+                text: '请先选择区域（支持 Ctrl+点击多选）',
+                title: 'Issue工具',
+                timeout: 3000
+            });
+        }
+    }
+
+    function renderSelectionTooltip(message) {
+        const tooltip = document.getElementById('cnb-selection-tooltip');
+        if (!tooltip) return;
+
+        tooltip.textContent = '';
+
+        const text = document.createElement('span');
+        text.className = 'cnb-selection-tooltip-text';
+        text.textContent = message || getSelectionTooltipText();
+        tooltip.appendChild(text);
+
+        const confirmBtn = document.createElement('button');
+        confirmBtn.id = 'cnb-confirm-selection';
+        confirmBtn.type = 'button';
+        confirmBtn.textContent = '确认选择';
+        confirmBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (selectedElements && selectedElements.size > 0) {
+                showIssueDialog(Array.from(selectedElements));
+            } else {
+                notifyNoSelection();
+            }
+        });
+        tooltip.appendChild(confirmBtn);
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.id = 'cnb-cancel-selection';
+        cancelBtn.type = 'button';
+        cancelBtn.textContent = '取消';
+        cancelBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            stopAreaSelection();
+        });
+        tooltip.appendChild(cancelBtn);
+    }
+
     // 处理鼠标悬停
     function handleMouseOver(e) {
         if (!isSelecting) return;
 
         const element = e.target;
-        if (!selectedElements.has(element) && !element.closest('.cnb-dock')) {
+        if (isToolUiElement(element)) return;
+
+        if (!selectedElements.has(element)) {
             // 移除之前的高亮
             const previousHighlight = document.querySelector('.cnb-selection-hover');
             if (previousHighlight) {
@@ -1211,6 +1302,8 @@
         if (!isSelecting) return;
 
         const element = e.target;
+        if (isToolUiElement(element)) return;
+
         if (!selectedElements.has(element) && element.classList.contains('cnb-selection-hover')) {
             element.classList.remove('cnb-selection-hover');
         }
@@ -1224,6 +1317,7 @@
         e.stopPropagation();
 
         const element = e.target;
+        if (isToolUiElement(element)) return;
 
         // Ctrl 多选：切换该元素选中状态；否则保持单选
         if (e.ctrlKey === true) {
@@ -1247,34 +1341,7 @@
         }
 
         // 更新提示信息
-        const tooltip = document.getElementById('cnb-selection-tooltip');
-        if (tooltip) {
-            const tagName = element.tagName.toLowerCase();
-            const className = element.className ? ` class="${element.className.split(' ')[0]}"` : '';
-            tooltip.innerHTML = `
-                已选择: &lt;${tagName}${className}&gt; (将转换为Markdown)
-                <button id="cnb-confirm-selection">确认选择</button>
-                <button id="cnb-cancel-selection">取消</button>
-            `;
-
-            // 重新绑定事件
-            const confirmBtn = tooltip.querySelector('#cnb-confirm-selection');
-            const cancelBtn = tooltip.querySelector('#cnb-cancel-selection');
-
-            confirmBtn.addEventListener('click', () => {
-                if (selectedElements && selectedElements.size > 0) {
-                    showIssueDialog(Array.from(selectedElements));
-                } else if (typeof GM_notification === 'function') {
-                    GM_notification({
-                        text: '请先选择区域（支持 Ctrl+点击多选）',
-                        title: 'Issue工具',
-                        timeout: 3000
-                    });
-                }
-            });
-
-            cancelBtn.addEventListener('click', stopAreaSelection);
-        }
+        renderSelectionTooltip(getSelectionTooltipText());
     }
 
     // 处理按键
