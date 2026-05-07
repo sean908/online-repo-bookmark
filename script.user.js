@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Issue Markdown 网页内容收藏工具
 // @namespace    https://github.com/sean908
-// @version      2.0.1
+// @version      2.0.2
 // @description  在任意网页上选择页面区域，一键将选中内容从 HTML 转为 Markdown，支持创建/更新 Issue 到 CNB/GitHub/GitLab 平台
 // @author       Se@n
 // @match        *://*/*
@@ -1771,7 +1771,7 @@ ${escapeHtml(selectedContent)}</textarea>
             const commentToggle = dialog.querySelector('#cnb-comment-toggle');
             const issueNumberInput = dialog.querySelector('#cnb-issue-number');
 
-            const shouldUpload = uploadToggle ? uploadToggle.checked : true;
+            const shouldUpload = uploadToggle ? uploadToggle.checked : false;
             const shouldEdit = editToggle ? editToggle.checked : false;
             const shouldComment = commentToggle ? commentToggle.checked : false;
             const issueNumber = issueNumberInput ? issueNumberInput.value.trim() : '';
@@ -1866,7 +1866,7 @@ ${escapeHtml(selectedContent)}</textarea>
                 const commentToggle = dialog.querySelector('#cnb-comment-toggle');
                 const issueNumberInput = dialog.querySelector('#cnb-issue-number');
 
-                const shouldUpload = uploadToggle ? uploadToggle.checked : true;
+                const shouldUpload = uploadToggle ? uploadToggle.checked : false;
                 const shouldEdit = editToggle ? editToggle.checked : false;
                 const shouldComment = commentToggle ? commentToggle.checked : false;
                 const issueNumber = issueNumberInput ? issueNumberInput.value.trim() : '';
@@ -5165,17 +5165,9 @@ ${md}`, 'text');
             });
         },
 
-        // GitHub 无专用图片上传 API，使用内联 base64
+        // GitHub 无专用图片上传 API；保留原始图片链接，不做内联转换
         uploadImage(blob, fileName, callback) {
-            const reader = new FileReader();
-            reader.onload = function() {
-                // 返回 base64 data URI 作为"上传后的 URL"
-                callback(reader.result, null);
-            };
-            reader.onerror = function() {
-                callback(null, 'base64 读取失败');
-            };
-            reader.readAsDataURL(blob);
+            if (callback) callback(null, 'GitHub 不支持图片上传');
         },
 
         renderSettingsExtra(container) {
